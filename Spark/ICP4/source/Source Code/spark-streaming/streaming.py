@@ -1,27 +1,53 @@
-import sys
-import os
+from pyspark.ml.classification import NaiveBayes
+from pyspark.ml.evaluation import MulticlassClassificationEvaluator
+from pyspark.ml import Pipeline
 
-os.environ["SPARK_HOME"] = "C:/Users/saidivya/Desktop/spark-2.4.3-bin-hadoop2.7"
-os.environ["HADOOP_HOME"]="C:/winutils"
+# Load training data
+from pyspark.sql import SparkSession
 
-from pyspark import SparkContext
-from pyspark.streaming import StreamingContext
+spark = SparkSession.builder.appName('Auto').getOrCreate()
 
-"""
-This is use for create streaming of text from txt files that creating dynamically 
-from files.py code. This spark streaming will execute in each 3 seconds and It'll
-show number of words count from each files dynamically
-"""
-def main():
-    sc = SparkContext(appName="PysparkStreaming")
-    ssc = StreamingContext(sc, 3)   #Streaming will execute in each 3 seconds
-    lines = ssc.textFileStream('log')  #'log/ mean directory name
-    counts = lines.flatMap(lambda line: line.split(" ")) \
-        .map(lambda x: (x, 1)) \
-        .reduceByKey(lambda a, b: a + b)
-    counts.pprint()
-    ssc.start()
-    ssc.awaitTermination()
+data = spark.read.csv("C:\Users\saidivya\Desktop\adult.csv",
+                           header=True, inferSchema="true")
 
-if __name__ == "__main__":
-    main()
+
+
+from pyspark.ml.feature import StringIndexer
+# Convert target into numerical categories
+labelIndexer = StringIndexer(inputCol="Salary", outputCol="label")
+
+from pyspark.ml.feature import VectorAssembler
+
+
+featureAssembler = VectorAssembler(inputCols=["Age", "sex", "capital-gain","capital-loss","hours-per-week","marital","pos","role","race","gender","num1","num2","num3","state","val"],
+                                   outputCol='features')
+
+
+
+#output = featureAssembler.transform(data)
+
+
+splits = data.randomSplit([0.7, 0.3])
+train= splits[0]
+test = splits[1]
+
+
+
+# create the trainer and set its parameters
+nb = NaiveBayes(smoothing=1.0, modelType="multinomial")
+
+pipeline = Pipeline(stages=[labelIndexer, featureAssembler, nb])
+
+# Run stages in pipeline and train model
+model = pipeline.fit(train)
+
+# select example rows to display.
+predictions = model.transform(test)
+predictions.printSchema()
+predictions.show()
+
+# compute accuracy on the test set
+evaluator = MulticlassClassificationEvaluator(labelCol="capital-gain", predictionCol="prediction",
+                                              metricName="accuracy")
+accuracy = evaluator.evaluate(predictions)
+print("Test set accuracy = " + str(accuracy))
